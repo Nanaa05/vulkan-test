@@ -1,0 +1,41 @@
+# ======================
+# Rust / Cargo
+# ======================
+/target/
+Cargo.lock
+
+# ======================
+# Build artifacts
+# ======================
+/dist/*.zip
+/dist/linux/
+/dist/windows/
+/dist/glfw-*/
+
+# ======================
+# Shader compilation output
+# ======================
+/shaders/spirv/
+
+# ======================
+# OS / Editor junk
+# ======================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ======================
+# Logs / dumps
+# ======================
+full_dump.txt
+code-dump.sh
+
+# ======================
+# Temporary / cache
+# ======================
+**/*.tmp
+**/*.log
+
