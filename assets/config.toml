@@ -15,7 +15,12 @@ orbit_radius = 3.0
 orbit_speed_deg = 90.0
 
 [controls]
-move_speed = 3.0
+move_speed = 2.5
+forward = "W"
+back = "S"
+left = "A"
+right = "D"
+jump = "Space"
 
 [game]
 arena_size = 10.0

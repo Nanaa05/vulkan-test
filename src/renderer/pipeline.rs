@@ -1,5 +1,4 @@
 use crate::resources::buffer::Vertex;
-use crate::utils::file_io::read_file;
 use anyhow::{Context, Result};
 use ash::vk;
 

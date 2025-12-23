@@ -5,3 +5,4 @@ pub mod render_pass;
 pub mod renderer;
 pub mod error;
 pub mod mesh;
+pub mod render_types;

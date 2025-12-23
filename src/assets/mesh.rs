@@ -50,3 +50,30 @@ pub fn cube() -> MeshData {
 
     MeshData { vertices, indices }
 }
+
+pub fn plane(size: f32) -> MeshData {
+    let h = size * 0.5;
+
+    let vertices = vec![
+        Vertex {
+            pos: [-h, 0.0, -h],
+            color: [0.3, 0.3, 0.35],
+        },
+        Vertex {
+            pos: [h, 0.0, -h],
+            color: [0.3, 0.3, 0.35],
+        },
+        Vertex {
+            pos: [h, 0.0, h],
+            color: [0.3, 0.3, 0.35],
+        },
+        Vertex {
+            pos: [-h, 0.0, h],
+            color: [0.3, 0.3, 0.35],
+        },
+    ];
+
+    let indices = vec![0, 1, 2, 2, 3, 0];
+
+    MeshData { vertices, indices }
+}

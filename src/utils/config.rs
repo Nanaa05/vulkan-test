@@ -1,3 +1,4 @@
+use crate::input::keybind::KeyBind;
 use anyhow::Result;
 use serde::Deserialize;
 
@@ -41,6 +42,12 @@ pub struct CameraConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ControlsConfig {
     pub move_speed: f32,
+
+    pub forward: KeyBind,
+    pub back: KeyBind,
+    pub left: KeyBind,
+    pub right: KeyBind,
+    pub jump: KeyBind,
 }
 
 #[derive(Debug, Deserialize, Clone)]

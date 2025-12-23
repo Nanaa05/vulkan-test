@@ -1,11 +1,10 @@
-use crate::resources::buffer::GpuBuffer;
+use crate::renderer::render_types::RenderItem;
 use anyhow::Result;
 use ash::vk;
 pub struct Commands {
     pub pool: vk::CommandPool,
     pub buffers: Vec<vk::CommandBuffer>,
 }
-use crate::renderer::mesh::Mesh;
 
 pub fn create_command_pool(device: &ash::Device, graphics_family: u32) -> Result<vk::CommandPool> {
     let info = vk::CommandPoolCreateInfo::default()
@@ -28,7 +27,7 @@ pub fn allocate_command_buffers(
     Ok(unsafe { device.allocate_command_buffers(&info)? })
 }
 
-pub fn record_triangle_cmd(
+pub fn record_scene_cmd(
     device: &ash::Device,
     cmd: vk::CommandBuffer,
     render_pass: vk::RenderPass,
@@ -37,12 +36,10 @@ pub fn record_triangle_cmd(
     pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     descriptor_set: vk::DescriptorSet,
-    mesh: &Mesh,
-    model: glam::Mat4,
+    items: &[RenderItem],
 ) -> Result<()> {
     let begin = vk::CommandBufferBeginInfo::default();
     unsafe { device.begin_command_buffer(cmd, &begin)? };
-    let model_bytes = model.to_cols_array_2d();
 
     let clear_values = [
         vk::ClearValue {
@@ -69,14 +66,7 @@ pub fn record_triangle_cmd(
 
         device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
 
-        device.cmd_push_constants(
-            cmd,
-            pipeline_layout,
-            vk::ShaderStageFlags::VERTEX,
-            0,
-            bytemuck::bytes_of(&model_bytes),
-        );
-
+        // Global descriptor set (view_proj UBO) once per cmd buffer
         device.cmd_bind_descriptor_sets(
             cmd,
             vk::PipelineBindPoint::GRAPHICS,
@@ -86,6 +76,7 @@ pub fn record_triangle_cmd(
             &[],
         );
 
+        // Dynamic viewport/scissor once
         let viewport = vk::Viewport {
             x: 0.0,
             y: 0.0,
@@ -95,13 +86,30 @@ pub fn record_triangle_cmd(
             max_depth: 1.0,
         };
         let scissor = vk::Rect2D::default().extent(extent);
-
         device.cmd_set_viewport(cmd, 0, &[viewport]);
         device.cmd_set_scissor(cmd, 0, &[scissor]);
 
-        device.cmd_bind_vertex_buffers(cmd, 0, &[mesh.vertex_buffer.buffer], &[0]);
-        device.cmd_bind_index_buffer(cmd, mesh.index_buffer.buffer, 0, vk::IndexType::UINT32);
-        device.cmd_draw_indexed(cmd, mesh.index_count, 1, 0, 0, 0);
+        // Draw all items
+        for item in items {
+            let model_bytes = item.model.to_cols_array_2d();
+
+            device.cmd_push_constants(
+                cmd,
+                pipeline_layout,
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                bytemuck::bytes_of(&model_bytes),
+            );
+
+            device.cmd_bind_vertex_buffers(cmd, 0, &[item.mesh.vertex_buffer.buffer], &[0]);
+            device.cmd_bind_index_buffer(
+                cmd,
+                item.mesh.index_buffer.buffer,
+                0,
+                vk::IndexType::UINT32,
+            );
+            device.cmd_draw_indexed(cmd, item.mesh.index_count, 1, 0, 0, 0);
+        }
 
         device.cmd_end_render_pass(cmd);
         device.end_command_buffer(cmd)?;

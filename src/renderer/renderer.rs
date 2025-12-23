@@ -10,8 +10,9 @@ use crate::core::{device::Device, surface::Surface, swapchain::Swapchain, sync::
 use crate::gfx::context::VkContext;
 use crate::renderer::error::RenderError;
 use crate::renderer::mesh::Mesh;
+use crate::renderer::render_types::{FrameGlobals, RenderItem};
 use crate::resources::buffer::{
-    GpuBuffer, UniformBufferObject, Vertex, create_index_buffer_u32, create_uniform_buffer,
+    GpuBuffer, UniformBufferObject, create_index_buffer_u32, create_uniform_buffer,
     create_vertex_buffer,
 };
 
@@ -35,6 +36,7 @@ pub struct Renderer {
     pub frames_in_flight: usize,
 
     pub uniform_buffers: Vec<GpuBuffer>,
+    pub uniform_mapped: Vec<*mut u8>,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
@@ -86,10 +88,23 @@ impl Renderer {
             depth_view,
         )?;
 
-        // uniform buffers (one per swapchain image)
         let mut uniform_buffers = Vec::with_capacity(swap.image_views.len());
+        let mut uniform_mapped = Vec::with_capacity(swap.image_views.len());
+
         for _ in 0..swap.image_views.len() {
-            uniform_buffers.push(create_uniform_buffer(&dev.device, &dev.memory_properties)?);
+            let buf = create_uniform_buffer(&dev.device, &dev.memory_properties)?;
+
+            let ptr = unsafe {
+                dev.device.map_memory(
+                    buf.memory,
+                    0,
+                    std::mem::size_of::<UniformBufferObject>() as u64,
+                    vk::MemoryMapFlags::empty(),
+                )?
+            } as *mut u8;
+
+            uniform_buffers.push(buf);
+            uniform_mapped.push(ptr);
         }
 
         // descriptor pool + sets
@@ -126,6 +141,7 @@ impl Renderer {
             frames_in_flight,
 
             uniform_buffers,
+            uniform_mapped,
             descriptor_set_layout,
             descriptor_pool,
             descriptor_sets,
@@ -157,8 +173,8 @@ impl Renderer {
         dev: &Device,
         _surface: &Surface,
         swap: &Swapchain,
-        mesh: &Mesh,
-        view_proj: Mat4,
+        globals: FrameGlobals,
+        items: &[RenderItem],
     ) -> Result<(), RenderError> {
         let frame = self.current_frame;
 
@@ -193,7 +209,7 @@ impl Renderer {
         }
 
         // update UBO for THIS swapchain image
-        self.update_uniform(&dev.device, idx, view_proj)
+        self.update_uniform(&dev.device, idx, globals.view_proj)
             .map_err(RenderError::Other)?;
 
         // mark image as in flight
@@ -211,9 +227,8 @@ impl Renderer {
         }
 
         // --- RECORD COMMAND BUFFER (this is the missing piece) ---
-        let model = glam::Mat4::IDENTITY;
 
-        record_triangle_cmd(
+        record_scene_cmd(
             &dev.device,
             cmd,
             self.render_pass,
@@ -221,9 +236,8 @@ impl Renderer {
             swap.extent,
             self.pipeline.pipeline,
             self.pipeline.layout,
-            self.descriptor_sets[idx],
-            mesh,
-            model,
+            self.descriptor_sets[idx], // ✅ still per swapchain image
+            items,
         )
         .map_err(RenderError::Other)?;
 
@@ -266,6 +280,13 @@ impl Renderer {
 
     pub fn destroy(&mut self, dev: &ash::Device) {
         unsafe {
+            for (i, b) in self.uniform_buffers.iter().enumerate() {
+                if !self.uniform_mapped.is_empty() {
+                    dev.unmap_memory(b.memory);
+                }
+            }
+            self.uniform_mapped.clear();
+
             // uniform buffers
             for b in &self.uniform_buffers {
                 b.destroy(dev);
@@ -299,28 +320,17 @@ impl Renderer {
         self.sync.destroy(dev);
     }
 
-    fn update_uniform(&self, device: &ash::Device, idx: usize, view_proj: Mat4) -> Result<()> {
+    fn update_uniform(&self, _device: &ash::Device, idx: usize, view_proj: Mat4) -> Result<()> {
         let ubo = UniformBufferObject {
             view_proj: view_proj.to_cols_array_2d(),
         };
 
-        let buf = &self.uniform_buffers[idx];
-
         unsafe {
-            let data = device.map_memory(
-                buf.memory,
-                0,
-                std::mem::size_of::<UniformBufferObject>() as u64,
-                vk::MemoryMapFlags::empty(),
-            )?;
-
             std::ptr::copy_nonoverlapping(
                 bytemuck::bytes_of(&ubo).as_ptr(),
-                data as *mut u8,
+                self.uniform_mapped[idx],
                 std::mem::size_of::<UniformBufferObject>(),
             );
-
-            device.unmap_memory(buf.memory);
         }
 
         Ok(())
