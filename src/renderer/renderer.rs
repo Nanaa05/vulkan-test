@@ -382,12 +382,9 @@ fn create_depth_resources(
 
     let image = unsafe { dev.device.create_image(&image_info, None)? };
     let reqs = unsafe { dev.device.get_image_memory_requirements(image) };
-    
+
     #[cfg(target_os = "macos")]
-    let candidates = &[
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    ][..];
+    let candidates = &[vk::MemoryPropertyFlags::DEVICE_LOCAL][..];
 
     #[cfg(not(target_os = "macos"))]
     let candidates = &[
@@ -405,13 +402,20 @@ fn create_depth_resources(
     let memory = unsafe { dev.device.allocate_memory(&alloc, None)? };
     unsafe { dev.device.bind_image_memory(image, memory, 0)? };
 
+    let aspect = match format {
+        vk::Format::D32_SFLOAT_S8_UINT | vk::Format::D24_UNORM_S8_UINT => {
+            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        }
+        _ => vk::ImageAspectFlags::DEPTH,
+    };
+
     let view_info = vk::ImageViewCreateInfo::default()
         .image(image)
         .view_type(vk::ImageViewType::TYPE_2D)
         .format(format)
         .subresource_range(
             vk::ImageSubresourceRange::default()
-                .aspect_mask(vk::ImageAspectFlags::DEPTH)
+                .aspect_mask(aspect)
                 .level_count(1)
                 .layer_count(1),
         );
