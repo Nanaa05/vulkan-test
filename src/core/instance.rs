@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use ash::{Entry, Instance, vk};
+use ash::{Entry, Instance, khr, vk}; // Added khr
 use std::ffi::CString;
 
 pub struct VkInstance {
@@ -15,18 +15,20 @@ impl VkInstance {
         let app_info = vk::ApplicationInfo::default()
             .application_name(&app_name)
             .engine_name(&engine_name)
-            .api_version(vk::make_api_version(0, 1, 3, 0));
+            .api_version(vk::make_api_version(0, 1, 2, 0));
 
-        // Extensions needed for surface creation depend on platform. :contentReference[oaicite:3]{index=3}
         let mut extensions = ash_window::enumerate_required_extensions(display_handle)?.to_vec();
 
-        // Enable debug utils in debug builds
+        // 1. ADD THIS: Mandatory extension for macOS/MoltenVK
+        // These are the standard names for these extensions in ash
+        extensions.push(khr::portability_enumeration::NAME.as_ptr());
+        extensions.push(khr::get_physical_device_properties2::NAME.as_ptr());
+
         #[cfg(debug_assertions)]
         {
             extensions.push(ash::ext::debug_utils::NAME.as_ptr());
         }
 
-        // Validation layer (debug only)
         let mut enabled_layers = Vec::new();
         #[cfg(debug_assertions)]
         {
@@ -37,10 +39,12 @@ impl VkInstance {
             .map(|l: &std::ffi::CString| l.as_ptr())
             .collect();
 
+        // 3. CHANGE THIS: Add the Enumerate Portability flag
         let create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_extension_names(&extensions)
-            .enabled_layer_names(&layer_ptrs);
+            .enabled_layer_names(&layer_ptrs)
+            .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR); // <--- CRITICAL
 
         let instance = unsafe { entry.create_instance(&create_info, None) }
             .context("Failed to create VkInstance")?;

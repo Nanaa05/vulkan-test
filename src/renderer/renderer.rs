@@ -339,18 +339,20 @@ impl Renderer {
 
 // ----------------------- depth helpers -----------------------
 
-fn find_memory_type(
+fn find_memory_type_fallback(
     mem_props: &vk::PhysicalDeviceMemoryProperties,
     type_bits: u32,
-    flags: vk::MemoryPropertyFlags,
+    candidates: &[vk::MemoryPropertyFlags],
 ) -> Result<u32> {
-    for i in 0..mem_props.memory_type_count {
-        if (type_bits & (1 << i)) != 0
-            && mem_props.memory_types[i as usize]
-                .property_flags
-                .contains(flags)
-        {
-            return Ok(i);
+    for &flags in candidates {
+        for i in 0..mem_props.memory_type_count {
+            if (type_bits & (1 << i)) != 0
+                && mem_props.memory_types[i as usize]
+                    .property_flags
+                    .contains(flags)
+            {
+                return Ok(i);
+            }
         }
     }
     anyhow::bail!("No suitable memory type found for depth buffer");
@@ -380,12 +382,21 @@ fn create_depth_resources(
 
     let image = unsafe { dev.device.create_image(&image_info, None)? };
     let reqs = unsafe { dev.device.get_image_memory_requirements(image) };
-
-    let mem_index = find_memory_type(
-        &dev.memory_properties,
-        reqs.memory_type_bits,
+    
+    #[cfg(target_os = "macos")]
+    let candidates = &[
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
+    ][..];
+
+    #[cfg(not(target_os = "macos"))]
+    let candidates = &[
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    ][..];
+
+    let mem_index =
+        find_memory_type_fallback(&dev.memory_properties, reqs.memory_type_bits, candidates)?;
 
     let alloc = vk::MemoryAllocateInfo::default()
         .allocation_size(reqs.size)

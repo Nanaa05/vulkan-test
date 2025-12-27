@@ -50,7 +50,24 @@ impl Device {
             })
             .collect();
 
-        let device_exts = [ash::khr::swapchain::NAME.as_ptr()];
+        // ---- device extensions ----
+        let available_exts = unsafe { instance.enumerate_device_extension_properties(physical)? };
+        let has_portability_subset = available_exts.iter().any(|e| unsafe {
+            std::ffi::CStr::from_ptr(e.extension_name.as_ptr()).to_bytes()
+                == b"VK_KHR_portability_subset"
+        });
+
+        let mut device_exts: Vec<*const i8> = vec![ash::khr::swapchain::NAME.as_ptr()];
+
+        // Keep CString alive until create_device()
+        let portability_subset_name = std::ffi::CString::new("VK_KHR_portability_subset")?;
+
+        #[cfg(target_os = "macos")]
+        {
+            if has_portability_subset {
+                device_exts.push(portability_subset_name.as_ptr());
+            }
+        }
 
         let create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_infos)

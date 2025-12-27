@@ -104,45 +104,71 @@ pub fn create_device_local_buffer_with_staging(
         );
     }
 
-    // 1) staging buffer (CPU visible)
-    let staging = create_buffer(
-        &dev.device,
-        &dev.memory_properties,
-        size,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )?;
+    // ✅ macOS / MoltenVK safe path: avoid DEVICE_LOCAL (Metal heaps)
+    #[cfg(target_os = "macos")]
+    {
+        let buf = create_buffer(
+            &dev.device,
+            &dev.memory_properties,
+            size,
+            usage,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
 
-    unsafe {
-        let data = dev
-            .device
-            .map_memory(staging.memory, 0, size, vk::MemoryMapFlags::empty())?;
-        std::ptr::copy_nonoverlapping(src_bytes.as_ptr(), data as *mut u8, src_bytes.len());
-        dev.device.unmap_memory(staging.memory);
+        unsafe {
+            let data = dev
+                .device
+                .map_memory(buf.memory, 0, size, vk::MemoryMapFlags::empty())?;
+            std::ptr::copy_nonoverlapping(src_bytes.as_ptr(), data as *mut u8, src_bytes.len());
+            dev.device.unmap_memory(buf.memory);
+        }
+
+        return Ok(buf);
     }
 
-    // 2) device-local buffer (GPU only)
-    let dst = create_buffer(
-        &dev.device,
-        &dev.memory_properties,
-        size,
-        usage | vk::BufferUsageFlags::TRANSFER_DST,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
+    // ✅ non-macOS path: staging -> DEVICE_LOCAL
+    #[cfg(not(target_os = "macos"))]
+    {
+        // 1) staging buffer (CPU visible)
+        let staging = create_buffer(
+            &dev.device,
+            &dev.memory_properties,
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
 
-    // 3) copy staging -> device local
-    let cmd = dev.begin_one_time_commands()?;
-    unsafe {
-        let region = vk::BufferCopy::default().size(size);
-        dev.device
-            .cmd_copy_buffer(cmd, staging.buffer, dst.buffer, &[region]);
+        unsafe {
+            let data =
+                dev.device
+                    .map_memory(staging.memory, 0, size, vk::MemoryMapFlags::empty())?;
+            std::ptr::copy_nonoverlapping(src_bytes.as_ptr(), data as *mut u8, src_bytes.len());
+            dev.device.unmap_memory(staging.memory);
+        }
+
+        // 2) device-local buffer (GPU only)
+        let dst = create_buffer(
+            &dev.device,
+            &dev.memory_properties,
+            size,
+            usage | vk::BufferUsageFlags::TRANSFER_DST,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        // 3) copy staging -> device local
+        let cmd = dev.begin_one_time_commands()?;
+        unsafe {
+            let region = vk::BufferCopy::default().size(size);
+            dev.device
+                .cmd_copy_buffer(cmd, staging.buffer, dst.buffer, &[region]);
+        }
+        dev.end_one_time_commands(cmd)?;
+
+        // 4) cleanup staging
+        staging.destroy(&dev.device);
+
+        Ok(dst)
     }
-    dev.end_one_time_commands(cmd)?;
-
-    // 4) cleanup staging
-    staging.destroy(&dev.device);
-
-    Ok(dst)
 }
 
 pub fn create_buffer(
